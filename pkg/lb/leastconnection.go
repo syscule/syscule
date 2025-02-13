@@ -4,12 +4,6 @@ import (
 	"sync"
 )
 
-type Target struct {
-	ID     string
-	Active int
-	mu     sync.Mutex
-}
-
 func (t *Target) Increment() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
