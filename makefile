@@ -15,6 +15,10 @@ build:
 run-lb-lc: build
 	./$(BINARY) loadbalancer -strategy=leastconnection
 
+## Least Response Time
+run-lb-lrt: build
+	./$(BINARY) loadbalancer -strategy=leastresponsetime
+
 # Clean up
 clean:
 	rm -f $(BINARY)
