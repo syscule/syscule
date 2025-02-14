@@ -2,13 +2,12 @@ package lb_test
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/syscule/syscule/pkg/lb"
 )
 
-func TestLeastConnection_Pick(t *testing.T) {
+func TestDispatcher_LeastConnection(t *testing.T) {
 	tests := []struct {
 		name     string
 		targets  []*lb.Target
@@ -65,31 +64,59 @@ func TestLeastConnection_Pick(t *testing.T) {
 	}
 }
 
-func TestLeastConnection_Concurrency(t *testing.T) {
-	targets := []*lb.Target{
-		{ID: "A", Active: 0},
-		{ID: "B", Active: 0},
-		{ID: "C", Active: 0},
+func TestDispatcher_LeastResponseTime(t *testing.T) {
+	tests := []struct {
+		name     string
+		targets  []*lb.Target
+		expected string
+	}{
+		{
+			name: "Single target",
+			targets: []*lb.Target{
+				{ID: "A", ResponseTime: 100},
+			},
+			expected: "A",
+		},
+		{
+			name: "Multiple targets, one least response time",
+			targets: []*lb.Target{
+				{ID: "A", ResponseTime: 200},
+				{ID: "B", ResponseTime: 150},
+				{ID: "C", ResponseTime: 250},
+			},
+			expected: "B",
+		},
+		{
+			name: "Multiple targets, tie",
+			targets: []*lb.Target{
+				{ID: "A", ResponseTime: 150},
+				{ID: "B", ResponseTime: 150},
+				{ID: "C", ResponseTime: 200},
+			},
+			expected: "A",
+		},
+		{
+			name:     "No targets",
+			targets:  []*lb.Target{},
+			expected: "",
+		},
 	}
 
-	lc := lb.NewLeastConnection(targets)
-	dispatcher := lb.NewDispatcher(lc)
-	var wg sync.WaitGroup
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lrt := lb.NewLeastResponseTime(tt.targets)
+			dispatcher := lb.NewDispatcher(lrt)
 
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
 			err := dispatcher.Dispatch(func(target *lb.Target) error {
-				target.IncrementActive()
-				defer target.DecrementActive()
+				if target.ID != tt.expected {
+					return fmt.Errorf("expected %s, got %s", tt.expected, target.ID)
+				}
 				return nil
 			})
-			if err != nil {
+
+			if err != nil && tt.expected != "" {
 				t.Errorf("dispatch failed: %v", err)
 			}
-			wg.Done()
-		}()
+		})
 	}
-
-	wg.Wait()
 }

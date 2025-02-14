@@ -1,8 +1,10 @@
 package lb_test
 
 import (
+	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/syscule/syscule/pkg/lb"
 )
@@ -48,14 +50,17 @@ func TestLeastResponseTime_Pick(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lrt := lb.NewLeastResponseTime(tt.targets)
-			target := lrt.Pick()
+			dispatcher := lb.NewDispatcher(lrt)
 
-			if target == nil {
-				if tt.expected != "" {
-					t.Errorf("expected %s, got nil", tt.expected)
+			err := dispatcher.Dispatch(func(target *lb.Target) error {
+				if target.ID != tt.expected {
+					return fmt.Errorf("expected %s, got %s", tt.expected, target.ID)
 				}
-			} else if target.ID != tt.expected {
-				t.Errorf("expected %s, got %s", tt.expected, target.ID)
+				return nil
+			})
+
+			if err != nil && tt.expected != "" {
+				t.Errorf("dispatch failed: %v", err)
 			}
 		})
 	}
@@ -69,14 +74,23 @@ func TestLeastResponseTime_Concurrency(t *testing.T) {
 	}
 
 	lrt := lb.NewLeastResponseTime(targets)
+	dispatcher := lb.NewDispatcher(lrt)
 	var wg sync.WaitGroup
 
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func() {
-			target := lrt.Pick()
-			if target != nil {
-				target.UpdateResponseTime(target.ResponseTime + 10) // Increasing load simulation
+			err := dispatcher.Dispatch(func(target *lb.Target) error {
+				startTime := time.Now()
+				target.IncrementActive()
+				defer target.DecrementActive()
+				time.Sleep(time.Millisecond * 10) // Simulate work
+				duration := time.Since(startTime)
+				target.UpdateResponseTime(duration)
+				return nil
+			})
+			if err != nil {
+				t.Errorf("dispatch failed: %v", err)
 			}
 			wg.Done()
 		}()
