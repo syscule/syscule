@@ -4,15 +4,18 @@ import (
 	"sync"
 )
 
+// LeastResponseTime implements the LoadBalancer interface using the least response time strategy.
 type LeastResponseTime struct {
 	targets []*Target
 	mu      sync.Mutex
 }
 
+// NewLeastResponseTime creates a new LeastResponseTime load balancer.
 func NewLeastResponseTime(targets []*Target) *LeastResponseTime {
 	return &LeastResponseTime{targets: targets}
 }
 
+// Pick selects the target with the least response time.
 func (lrt *LeastResponseTime) Pick() *Target {
 	lrt.mu.Lock()
 	defer lrt.mu.Unlock()
@@ -21,25 +24,19 @@ func (lrt *LeastResponseTime) Pick() *Target {
 		return nil
 	}
 
-	var leastLoaded *Target
-	minResponseTime := int(^uint(0) >> 1)
-
+	var bestTarget *Target
 	for _, target := range lrt.targets {
-		target.mu.Lock()
-		responseTime := target.ResponseTime
-		target.mu.Unlock()
-
-		if responseTime < minResponseTime {
-			leastLoaded = target
-			minResponseTime = responseTime
+		if bestTarget == nil || lrt.Calculate(target) < lrt.Calculate(bestTarget) {
+			bestTarget = target
 		}
 	}
 
-	return leastLoaded
+	return bestTarget
 }
 
-func (t *Target) UpdateResponseTime(responseTime int) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.ResponseTime = responseTime
+// Calculate returns the response time of the target.
+func (lrt *LeastResponseTime) Calculate(target *Target) int {
+	target.mu.Lock()
+	defer target.mu.Unlock()
+	return target.ResponseTime
 }

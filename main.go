@@ -19,17 +19,19 @@ const (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("expected 'loadbalancer' subcommands")
-		os.Exit(1)
+		return
 	}
 
-	switch os.Args[1] {
+	command := os.Args[1]
+
+	switch command {
 	case CommandLoadBalancer:
-		loadBalancerCmd := flag.NewFlagSet(CommandLoadBalancer, flag.ExitOnError)
-		strategy := loadBalancerCmd.String("strategy", StrategyLeastConnection, "Load balancing strategy")
-		err := loadBalancerCmd.Parse(os.Args[2:])
-		if err != nil {
-			fmt.Println("Error parsing command:", err)
-			os.Exit(1)
+		strategy := flag.String("strategy", "", "load balancing strategy")
+		flag.CommandLine.Parse(os.Args[2:])
+
+		if *strategy == "" {
+			fmt.Println("expected strategy for 'loadbalancer' subcommand")
+			return
 		}
 
 		switch *strategy {
@@ -38,12 +40,10 @@ func main() {
 		case StrategyLeastResponseTime:
 			runLBLeastResponseTime()
 		default:
-			fmt.Println("Unknown strategy:", *strategy)
-			os.Exit(1)
+			fmt.Printf("unknown strategy: %s\n", *strategy)
 		}
 	default:
-		fmt.Println("Unknown command:", os.Args[1])
-		os.Exit(1)
+		fmt.Printf("unknown command: %s\n", command)
 	}
 }
 
@@ -55,18 +55,24 @@ func runLBLeastConnection() {
 	}
 
 	lc := lb.NewLeastConnection(targets)
+	dispatcher := lb.NewDispatcher(lc)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func(requestID int) {
 			defer wg.Done()
-			target := lc.Pick()
-			if target != nil {
-				target.Increment()
+
+			err := dispatcher.Dispatch(func(target *lb.Target) error {
+				target.IncrementActive()
 				fmt.Printf("Request %d is being handled by %s\n", requestID, target.ID)
 				time.Sleep(time.Millisecond * 100)
-				target.Decrement()
+				target.DecrementActive()
+				return nil
+			})
+
+			if err != nil {
+				fmt.Printf("Request %d failed: %v\n", requestID, err)
 			}
 		}(i)
 	}
@@ -83,6 +89,7 @@ func runLBLeastResponseTime() {
 	}
 
 	lrt := lb.NewLeastResponseTime(targets)
+	dispatcher := lb.NewDispatcher(lrt)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
@@ -90,14 +97,19 @@ func runLBLeastResponseTime() {
 		go func(requestID int) {
 			defer wg.Done()
 
-			target := lrt.Pick()
-			if target != nil {
-				target.Increment()
+			err := dispatcher.Dispatch(func(target *lb.Target) error {
+				startTime := time.Now()
+				target.IncrementActive()
 				fmt.Printf("Request %d is being handled by %s\n", requestID, target.ID)
-
 				time.Sleep(time.Millisecond * 100)
-				target.UpdateResponseTime(target.ResponseTime + 5)
-				target.Decrement()
+				duration := time.Since(startTime)
+				target.UpdateResponseTime(duration)
+				target.DecrementActive()
+				return nil
+			})
+
+			if err != nil {
+				fmt.Printf("Request %d failed: %v\n", requestID, err)
 			}
 		}(i)
 	}

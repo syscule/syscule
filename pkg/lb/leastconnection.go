@@ -4,27 +4,18 @@ import (
 	"sync"
 )
 
-func (t *Target) Increment() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.Active++
-}
-
-func (t *Target) Decrement() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.Active--
-}
-
+// LeastConnection implements the LoadBalancer interface using the least connection strategy.
 type LeastConnection struct {
 	targets []*Target
 	mu      sync.Mutex
 }
 
+// NewLeastConnection creates a new LeastConnection load balancer.
 func NewLeastConnection(targets []*Target) *LeastConnection {
 	return &LeastConnection{targets: targets}
 }
 
+// Pick selects the target with the least active connections.
 func (lc *LeastConnection) Pick() *Target {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
@@ -33,12 +24,19 @@ func (lc *LeastConnection) Pick() *Target {
 		return nil
 	}
 
-	var leastLoaded *Target
+	var bestTarget *Target
 	for _, target := range lc.targets {
-		if leastLoaded == nil || target.Active < leastLoaded.Active {
-			leastLoaded = target
+		if bestTarget == nil || lc.Calculate(target) < lc.Calculate(bestTarget) {
+			bestTarget = target
 		}
 	}
 
-	return leastLoaded
+	return bestTarget
+}
+
+// Calculate returns the number of active connections of the target.
+func (lc *LeastConnection) Calculate(target *Target) int {
+	target.mu.Lock()
+	defer target.mu.Unlock()
+	return target.Active
 }
